@@ -11,14 +11,14 @@ import (
 
 // ParsedItem is the normalised representation of one news item.
 type ParsedItem struct {
-	Title       string  `json:"title"`
-	Link        string  `json:"link"`
-	Description string  `json:"description,omitempty"`
-	PubDate     string  `json:"pubDate"`
-	Source      string  `json:"source"`
-	Hash        string  `json:"hash"`
-	Severity    int     `json:"severity,omitempty"`
-	Score       float64 `json:"importanceScore,omitempty"`
+	Title       string   `json:"title"`
+	Link        string   `json:"link"`
+	Description string   `json:"description,omitempty"`
+	PubDate     string   `json:"pubDate"`
+	Source      string   `json:"source"`
+	Hash        string   `json:"hash"`
+	Severity    int      `json:"severity,omitempty"`
+	Score       float64  `json:"importanceScore,omitempty"`
 	Categories  []string `json:"categories,omitempty"`
 
 	// tracking fields (populated later)
@@ -33,15 +33,15 @@ func (p ParsedItem) TrackHash() string { return p.Hash }
 // ParseFeedResponse parses RSS body and normalises to ParsedItems.
 func ParseFeedResponse(body []byte, feed FeedEntry) []ParsedItem {
 	rssItems, err := xmlparser.ParseRssXML(body)
-	if err != nil {
-		// try atom
-		atomEntries, atomErr := xmlparser.ParseAtomXML(body)
-		if atomErr != nil {
-			return nil
-		}
+	if err == nil && len(rssItems) > 0 {
+		return rssToItems(rssItems, feed)
+	}
+	// try atom
+	atomEntries, atomErr := xmlparser.ParseAtomXML(body)
+	if atomErr == nil && len(atomEntries) > 0 {
 		return atomToItems(atomEntries, feed)
 	}
-	return rssToItems(rssItems, feed)
+	return nil
 }
 
 func rssToItems(items []xmlparser.RssItem, feed FeedEntry) []ParsedItem {

@@ -7,6 +7,11 @@ import (
 	"sort"
 )
 
+// SeedRunner is the interface for seed lifecycle management (lock → run → publish → meta).
+type SeedRunner interface {
+	Run(ctx context.Context, src Source) error
+}
+
 // Registry is the central container that holds all Sources,
 // manages their scheduling and tracks their health.
 type Registry struct {
@@ -14,13 +19,18 @@ type Registry struct {
 	order     []string // topologically sorted names
 	health    *HealthTracker
 	scheduler *Scheduler
+	runner    SeedRunner // optional, when set dispatchRun uses seed lifecycle
 }
 
-// New creates an empty Registry.
-func New() *Registry {
+// New creates an empty Registry. If a SeedRunner is provided, dispatchRun
+// will use the full seed lifecycle (lock → run → publish → meta).
+func New(runner ...SeedRunner) *Registry {
 	r := &Registry{
 		sources: make(map[string]Source),
 		health:  NewHealthTracker(),
+	}
+	if len(runner) > 0 && runner[0] != nil {
+		r.runner = runner[0]
 	}
 	r.scheduler = NewScheduler(r.dispatchRun)
 	return r
@@ -81,6 +91,19 @@ func (r *Registry) dispatchRun(ctx context.Context, s Source) {
 	name := s.Name()
 	r.health.RecordAttempt(name)
 
+	if r.runner != nil {
+		// full seed lifecycle: lock → run → publish → meta → unlock
+		if err := r.runner.Run(ctx, s); err != nil {
+			slog.Error("seed run failed", "source", name, "err", err)
+			r.health.RecordFailure(name)
+			return
+		}
+		// runner.Run already publishes data; record success with synthetic metrics
+		r.health.RecordSuccess(name, FetchMetrics{})
+		return
+	}
+
+	// fallback: direct run without seed lifecycle
 	result, err := s.Run(ctx)
 	if err != nil {
 		slog.Error("source run failed", "source", name, "err", err)

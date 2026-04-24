@@ -10,13 +10,23 @@ import (
 
 type memClient struct{ data map[string][]byte }
 
-func newMem() *memClient                                                        { return &memClient{data: make(map[string][]byte)} }
-func (m *memClient) Get(_ context.Context, k string) ([]byte, error)            { return m.data[k], nil }
-func (m *memClient) Set(_ context.Context, k string, v []byte, _ time.Duration) error { m.data[k] = v; return nil }
-func (m *memClient) Del(_ context.Context, _ ...string) error                   { return nil }
-func (m *memClient) Pipeline(_ context.Context, _ []cache.Cmd) ([]cache.Result, error) { return nil, nil }
-func (m *memClient) Expire(_ context.Context, _ string, _ time.Duration) error  { return nil }
-func (m *memClient) Eval(_ context.Context, _ string, _ []string, _ ...any) (any, error) { return nil, nil }
+func newMem() *memClient                                             { return &memClient{data: make(map[string][]byte)} }
+func (m *memClient) Get(_ context.Context, k string) ([]byte, error) { return m.data[k], nil }
+func (m *memClient) Set(_ context.Context, k string, v []byte, _ time.Duration) error {
+	m.data[k] = v
+	return nil
+}
+func (m *memClient) Del(_ context.Context, _ ...string) error { return nil }
+func (m *memClient) Pipeline(_ context.Context, _ []cache.Cmd) ([]cache.Result, error) {
+	return nil, nil
+}
+func (m *memClient) Expire(_ context.Context, _ string, _ time.Duration) error { return nil }
+func (m *memClient) Eval(_ context.Context, _ string, _ []string, _ ...any) (any, error) {
+	return nil, nil
+}
+func (m *memClient) Info(_ context.Context) (map[string]string, error) {
+	return map[string]string{"db0": "keys=0"}, nil
+}
 
 func TestCorrelationFuser_TwoDomains(t *testing.T) {
 	mc := newMem()

@@ -18,6 +18,7 @@ type Client interface {
 	Pipeline(ctx context.Context, cmds []Cmd) ([]Result, error)
 	Expire(ctx context.Context, key string, ttl time.Duration) error
 	Eval(ctx context.Context, script string, keys []string, args ...any) (any, error)
+	Info(ctx context.Context) (map[string]string, error)
 }
 
 // Cmd represents one Redis command in a pipeline.
@@ -55,10 +56,10 @@ func DefaultClientConfig() ClientConfig {
 // ── Upstash REST implementation ─────────────────────────────
 
 type upstashClient struct {
-	url    string
-	token  string
-	cfg    ClientConfig
-	http   *http.Client
+	url   string
+	token string
+	cfg   ClientConfig
+	http  *http.Client
 }
 
 // NewUpstashClient creates a Client backed by Upstash REST API.
@@ -203,6 +204,34 @@ func (c *upstashClient) Pipeline(ctx context.Context, cmds []Cmd) ([]Result, err
 func (c *upstashClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	_, err := c.do(ctx, c.cfg.WriteTimeout, []any{"EXPIRE", key, int(ttl.Seconds())})
 	return err
+}
+
+func (c *upstashClient) Info(ctx context.Context) (map[string]string, error) {
+	raw, err := c.do(ctx, c.cfg.ReadTimeout, []string{"INFO"})
+	if err != nil {
+		return nil, err
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		// try parsing as key-value pairs from structured response
+		result := map[string]string{"raw": string(raw)}
+		return result, nil
+	}
+	return parseInfoString(s), nil
+}
+
+func parseInfoString(s string) map[string]string {
+	m := make(map[string]string)
+	for _, line := range bytes.Split([]byte(s), []byte("\r\n")) {
+		l := string(line)
+		if l == "" || l[0] == '#' {
+			continue
+		}
+		if idx := bytes.IndexByte(line, ':'); idx > 0 {
+			m[string(line[:idx])] = string(line[idx+1:])
+		}
+	}
+	return m
 }
 
 func (c *upstashClient) Eval(ctx context.Context, script string, keys []string, args ...any) (any, error) {

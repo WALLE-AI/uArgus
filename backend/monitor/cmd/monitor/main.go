@@ -16,6 +16,7 @@ import (
 
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/cache"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/config"
+	"github.com/WALL-AI/uArgus/backend/monitor/internal/llm/provider"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/news"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/registry"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/research"
@@ -51,14 +52,32 @@ func main() {
 
 	// ── seed runner ─────────────────────────────────────────
 	runner := seed.NewRunner(rdb, metrics)
-	_ = runner // wired into registry.dispatchRun via future integration
 
 	// ── registry ────────────────────────────────────────────
-	reg := registry.New()
+	reg := registry.New(runner)
+
+	// ── agents client (direct LLM or HTTP fallback) ────────
+	var agentsClient agents.AgentsClient
+	if cfg.LLMProvider != "" {
+		direct, err := agents.NewDirectAgentsClient(agents.DirectAgentsConfig{
+			ProviderType: provider.ProviderType(cfg.LLMProvider),
+			APIKey:       cfg.LLMAPIKey,
+			BaseURL:      cfg.LLMBaseURL,
+			Model:        cfg.LLMModel,
+		})
+		if err != nil {
+			slog.Error("failed to create direct LLM client, falling back to HTTP", "err", err)
+			agentsClient = agents.NewHTTPAgentsClient(cfg.AgentsURL)
+		} else {
+			slog.Info("using direct LLM provider", "type", cfg.LLMProvider, "model", cfg.LLMModel)
+			agentsClient = direct
+		}
+	} else {
+		agentsClient = agents.NewHTTPAgentsClient(cfg.AgentsURL)
+	}
 
 	// ── register sources ────────────────────────────────────
-	agentsClient := agents.NewHTTPAgentsClient(cfg.AgentsURL)
-	news.RegisterAll(reg, rdb, agentsClient)
+	news.RegisterAll(reg, rdb, agentsClient, cfg.ProxyRelayURL)
 	research.RegisterAll(reg, rdb)
 
 	// ── boot ────────────────────────────────────────────────
@@ -71,11 +90,36 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		snap := reg.HealthSnapshot()
+		redisInfo, _ := rdb.Info(r.Context())
+
+		// Compute aggregate status from individual source health states.
+		aggregate := "ok"
+		var degraded, failing []string
+		for name, s := range snap {
+			switch s.State {
+			case registry.HealthStateFailing:
+				failing = append(failing, name)
+			case registry.HealthStateDegraded:
+				degraded = append(degraded, name)
+			}
+		}
+		if len(failing) > 0 {
+			aggregate = "failing"
+		} else if len(degraded) > 0 {
+			aggregate = "degraded"
+		}
+
 		w.Header().Set("Content-Type", "application/json")
+		if aggregate == "failing" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"status":  "ok",
-			"sources": snap,
-			"ts":      time.Now().UTC().Format(time.RFC3339),
+			"status":   aggregate,
+			"degraded": degraded,
+			"failing":  failing,
+			"sources":  snap,
+			"redis":    redisInfo,
+			"ts":       time.Now().UTC().Format(time.RFC3339),
 		})
 	})
 	mux.Handle("/metrics", promhttp.HandlerFor(promReg, promhttp.HandlerOpts{}))

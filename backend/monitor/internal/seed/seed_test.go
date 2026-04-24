@@ -70,6 +70,10 @@ func (m *memClient) Pipeline(_ context.Context, cmds []cache.Cmd) ([]cache.Resul
 
 func (m *memClient) Expire(_ context.Context, _ string, _ time.Duration) error { return nil }
 
+func (m *memClient) Info(_ context.Context) (map[string]string, error) {
+	return map[string]string{"db0": "keys=0"}, nil
+}
+
 func (m *memClient) Eval(_ context.Context, script string, keys []string, args ...any) (any, error) {
 	// simplified CAS: just delete the key
 	if len(keys) > 0 {

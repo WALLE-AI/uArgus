@@ -11,8 +11,13 @@ import (
 )
 
 // RegisterAll registers all news Sources (5 digest variants + 1 insights).
-func RegisterAll(reg *registry.Registry, rdb cache.Client, agentsClient agents.AgentsClient) {
+// relayBaseURL enables dual-path proxy fallback when non-empty.
+func RegisterAll(reg *registry.Registry, rdb cache.Client, agentsClient agents.AgentsClient, relayBaseURL ...string) {
 	httpClient := fetcher.NewClient(fetcher.ClientOpts{})
+	relay := ""
+	if len(relayBaseURL) > 0 {
+		relay = relayBaseURL[0]
+	}
 
 	for _, v := range AllVariants() {
 		canonicalKey := fmt.Sprintf("news:digest:v1:%s:en", v)
@@ -28,11 +33,12 @@ func RegisterAll(reg *registry.Registry, rdb cache.Client, agentsClient agents.A
 			LockTTL:          5 * time.Minute,
 		}
 		src := NewDigestSource(DigestOpts{
-			Variant:    v,
-			Lang:       "en",
-			Spec:       spec,
-			HTTPClient: httpClient,
-			RDB:        rdb,
+			Variant:      v,
+			Lang:         "en",
+			Spec:         spec,
+			HTTPClient:   httpClient,
+			RDB:          rdb,
+			RelayBaseURL: relay,
 		})
 		reg.Register(src)
 	}

@@ -83,6 +83,10 @@ func (m *memClient) Eval(_ context.Context, _ string, _ []string, _ ...any) (any
 	return nil, nil
 }
 
+func (m *memClient) Info(_ context.Context) (map[string]string, error) {
+	return map[string]string{"db0": "keys=0"}, nil
+}
+
 // ── tests ───────────────────────────────────────────────────
 
 func TestFetchThrough_Singleflight(t *testing.T) {

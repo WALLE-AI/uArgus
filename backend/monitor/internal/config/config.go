@@ -25,6 +25,12 @@ type Config struct {
 	Port int
 	Env  string // "development" | "production"
 
+	// LLM Provider
+	LLMProvider string // "anthropic" | "openai" | "ollama" | "vllm" | "openai_compat"
+	LLMAPIKey   string
+	LLMBaseURL  string
+	LLMModel    string
+
 	// Feature flags
 	SidecarMode bool
 
@@ -49,6 +55,11 @@ func Load() (*Config, error) {
 
 		Port: envInt("PORT", 8090),
 		Env:  envOr("ENV", "development"),
+
+		LLMProvider: envOr("LLM_PROVIDER", ""),
+		LLMAPIKey:   os.Getenv("LLM_API_KEY"),
+		LLMBaseURL:  os.Getenv("LLM_BASE_URL"),
+		LLMModel:    envOr("LLM_MODEL", ""),
 
 		SidecarMode: envBool("SIDECAR_MODE", false),
 

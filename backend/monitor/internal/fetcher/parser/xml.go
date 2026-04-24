@@ -40,9 +40,8 @@ type rssFeed struct {
 
 // ParseRssXML parses RSS 2.0 XML and returns structured items.
 func ParseRssXML(body []byte) ([]RssItem, error) {
-	cleaned := cleanXML(body)
 	var feed rssFeed
-	if err := xml.Unmarshal(cleaned, &feed); err != nil {
+	if err := xml.Unmarshal(body, &feed); err != nil {
 		return nil, fmt.Errorf("parser: rss xml: %w", err)
 	}
 
@@ -93,9 +92,8 @@ type atomLink struct {
 
 // ParseAtomXML parses Atom XML and returns structured entries.
 func ParseAtomXML(body []byte) ([]AtomEntry, error) {
-	cleaned := cleanXML(body)
 	var feed atomFeed
-	if err := xml.Unmarshal(cleaned, &feed); err != nil {
+	if err := xml.Unmarshal(body, &feed); err != nil {
 		return nil, fmt.Errorf("parser: atom xml: %w", err)
 	}
 
@@ -126,8 +124,8 @@ func ParseAtomXML(body []byte) ([]AtomEntry, error) {
 // ── helpers ─────────────────────────────────────────────────
 
 var (
-	cdataRe   = regexp.MustCompile(`<!\[CDATA\[(.+?)\]\]>`)
-	entityRe  = regexp.MustCompile(`&[a-zA-Z]+;`)
+	cdataRe    = regexp.MustCompile(`<!\[CDATA\[(.+?)\]\]>`)
+	entityRe   = regexp.MustCompile(`&[a-zA-Z]+;`)
 	tagStripRe = regexp.MustCompile(`<[^>]*>`)
 )
 

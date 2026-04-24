@@ -2,6 +2,7 @@ package news
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"time"
@@ -9,12 +10,15 @@ import (
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/cache"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/fetcher"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/fetcher/pool"
+	"github.com/WALL-AI/uArgus/backend/monitor/internal/fetcher/proxy"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/registry"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/semantic/classify"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/semantic/scoring"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/semantic/tiers"
 	"github.com/WALL-AI/uArgus/backend/monitor/internal/semantic/tracking"
 )
+
+const digestCacheTTL = 900 // 15 minutes — matches v1 cachedFetchJson TTL
 
 // DigestSource fetches RSS feeds, classifies, scores, tracks, and produces the news digest.
 type DigestSource struct {
@@ -26,20 +30,24 @@ type DigestSource struct {
 	scorer     *scoring.WeightedScorer
 	tracker    *tracking.StoryTracker
 	rdb        cache.Client
+	cache      *cache.FetchThrough[[]ParsedItem]
+	strategy   proxy.Strategy // nil = direct only
+	relayHTTP  *fetcher.Client
 }
 
 // DigestOpts configures a DigestSource.
 type DigestOpts struct {
-	Variant    string
-	Lang       string
-	Spec       registry.SourceSpec
-	HTTPClient *fetcher.Client
-	RDB        cache.Client
+	Variant      string
+	Lang         string
+	Spec         registry.SourceSpec
+	HTTPClient   *fetcher.Client
+	RDB          cache.Client
+	RelayBaseURL string // optional; enables DirectFirst proxy fallback
 }
 
 // NewDigestSource creates a DigestSource.
 func NewDigestSource(opts DigestOpts) *DigestSource {
-	return &DigestSource{
+	ds := &DigestSource{
 		variant:    opts.Variant,
 		lang:       opts.Lang,
 		spec:       opts.Spec,
@@ -48,14 +56,52 @@ func NewDigestSource(opts DigestOpts) *DigestSource {
 		scorer:     scoring.NewImportanceScorer(),
 		tracker:    tracking.NewStoryTracker(opts.RDB),
 		rdb:        opts.RDB,
+		cache:      cache.NewFetchThrough[[]ParsedItem](opts.RDB, nil),
 	}
+	if opts.RelayBaseURL != "" {
+		ds.strategy = proxy.DirectFirst{}
+		ds.relayHTTP = fetcher.NewClient(fetcher.ClientOpts{
+			Timeout:   10 * time.Second,
+			UserAgent: "uArgus-Monitor/2.0 relay",
+		})
+	}
+	return ds
 }
 
-func (d *DigestSource) Name() string                { return d.spec.CanonicalKey }
-func (d *DigestSource) Spec() registry.SourceSpec    { return d.spec }
-func (d *DigestSource) Dependencies() []string       { return nil }
+func (d *DigestSource) Name() string              { return d.spec.CanonicalKey }
+func (d *DigestSource) Spec() registry.SourceSpec { return d.spec }
+func (d *DigestSource) Dependencies() []string    { return nil }
 
 func (d *DigestSource) Run(ctx context.Context) (*registry.FetchResult, error) {
+	cacheKey := fmt.Sprintf("news:digest-cache:v2:%s:%s", d.variant, d.lang)
+	result, err := d.cache.Fetch(ctx, cache.FetchOpts[[]ParsedItem]{
+		Key: cacheKey,
+		TTL: digestCacheTTL * time.Second,
+		Fetcher: func(ctx context.Context) (*[]ParsedItem, error) {
+			items, err := d.buildDigest(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &items, nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var items []ParsedItem
+	if result != nil {
+		items = *result
+	}
+	return &registry.FetchResult{
+		Data: items,
+		Metrics: registry.FetchMetrics{
+			RecordCount: len(items),
+		},
+	}, nil
+}
+
+// buildDigest performs the full fetch → parse → classify → score → track pipeline.
+func (d *DigestSource) buildDigest(ctx context.Context) ([]ParsedItem, error) {
 	start := time.Now()
 	feeds := GetFeeds(d.variant, d.lang)
 	logger := slog.With("source", d.Name(), "feeds", len(feeds))
@@ -65,7 +111,19 @@ func (d *DigestSource) Run(ctx context.Context) (*registry.FetchResult, error) {
 		items []ParsedItem
 	}
 	results := pool.BoundedPool(ctx, 20, feeds, func(ctx context.Context, feed FeedEntry) (fetchResult, error) {
-		body, status, err := d.httpClient.Get(ctx, feed.URL)
+		var body []byte
+		var status int
+		var err error
+
+		if d.strategy != nil {
+			body, status, err = d.strategy.Execute(ctx, feed.URL,
+				d.httpClient.Get,
+				d.relayHTTP.Get,
+			)
+		} else {
+			body, status, err = d.httpClient.Get(ctx, feed.URL)
+		}
+
 		if err != nil || status >= 400 {
 			return fetchResult{}, err
 		}
@@ -136,11 +194,6 @@ func (d *DigestSource) Run(ctx context.Context) (*registry.FetchResult, error) {
 		deduped = deduped[:maxItems]
 	}
 
-	return &registry.FetchResult{
-		Data: deduped,
-		Metrics: registry.FetchMetrics{
-			Duration:    time.Since(start),
-			RecordCount: len(deduped),
-		},
-	}, nil
+	logger.Info("digest built", "items", len(deduped), "duration", time.Since(start))
+	return deduped, nil
 }

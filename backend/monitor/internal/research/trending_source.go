@@ -32,7 +32,7 @@ func NewTrendingSource(spec registry.SourceSpec, httpClient *fetcher.Client) *Tr
 	return &TrendingSource{spec: spec, httpClient: httpClient}
 }
 
-func (s *TrendingSource) Name() string             { return s.spec.CanonicalKey }
+func (s *TrendingSource) Name() string              { return s.spec.CanonicalKey }
 func (s *TrendingSource) Spec() registry.SourceSpec { return s.spec }
 func (s *TrendingSource) Dependencies() []string    { return nil }
 
@@ -64,22 +64,48 @@ func (s *TrendingSource) Run(ctx context.Context) (*registry.FetchResult, error)
 	}, nil
 }
 
+type ossInsightRepo struct {
+	RepoName    string `json:"repo_name"`
+	Description string `json:"description"`
+	Stars       int    `json:"stars"`
+	Language    string `json:"language"`
+	RepoID      int    `json:"repo_id"`
+}
+
 func (s *TrendingSource) fetchOSSInsight(ctx context.Context) ([]TrendingRepo, error) {
 	body, status, err := s.httpClient.Get(ctx, "https://api.ossinsight.io/v1/trends/repos")
 	if err != nil || status >= 400 {
 		return nil, fmt.Errorf("ossinsight: status %d: %w", status, err)
 	}
+	// OSSInsight returns { data: { rows: [...] } }
 	var resp struct {
-		Data []TrendingRepo `json:"data"`
+		Data struct {
+			Rows []ossInsightRepo `json:"rows"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Data, nil
+	repos := make([]TrendingRepo, 0, len(resp.Data.Rows))
+	for _, r := range resp.Data.Rows {
+		repos = append(repos, TrendingRepo{
+			Name:        r.RepoName,
+			FullName:    r.RepoName,
+			Description: r.Description,
+			Stars:       r.Stars,
+			Language:    r.Language,
+			URL:         fmt.Sprintf("https://github.com/%s", r.RepoName),
+		})
+	}
+	if len(repos) == 0 {
+		return nil, fmt.Errorf("ossinsight: 0 repos returned")
+	}
+	return repos, nil
 }
 
 func (s *TrendingSource) fetchGitHub(ctx context.Context) ([]TrendingRepo, error) {
-	url := "https://api.github.com/search/repositories?q=stars:>1000+pushed:>2024-01-01&sort=stars&order=desc&per_page=30"
+	cutoff := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+	url := fmt.Sprintf("https://api.github.com/search/repositories?q=stars:%%3E1000+pushed:%%3E%s&sort=stars&order=desc&per_page=30", cutoff)
 	body, status, err := s.httpClient.Get(ctx, url)
 	if err != nil || status >= 400 {
 		return nil, fmt.Errorf("github: status %d: %w", status, err)

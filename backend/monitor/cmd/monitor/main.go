@@ -56,6 +56,28 @@ func main() {
 	// ── registry ────────────────────────────────────────────
 	reg := registry.New(runner)
 
+	// ── embedding client (BGE-M3 via OpenAI-compat) ────────
+	var embedder *agents.EmbeddingClient
+	if cfg.EmbeddingAPIURL != "" {
+		embedder = agents.NewEmbeddingClient(agents.EmbeddingConfig{
+			BaseURL: cfg.EmbeddingAPIURL,
+			Model:   cfg.EmbeddingModel,
+			APIKey:  cfg.EmbeddingAPIKey,
+		})
+		slog.Info("embedding client configured", "url", cfg.EmbeddingAPIURL, "model", cfg.EmbeddingModel)
+	}
+
+	// ── chroma client (vector store) ────────────────────────
+	var chromaClient *agents.ChromaClient
+	if cfg.ChromaURL != "" {
+		chromaClient = agents.NewChromaClient(agents.ChromaConfig{
+			BaseURL:    cfg.ChromaURL,
+			Collection: cfg.ChromaCollection,
+		})
+		slog.Info("chroma client configured", "url", cfg.ChromaURL, "collection", cfg.ChromaCollection)
+	}
+	_ = chromaClient // available for downstream consumers
+
 	// ── agents client (direct LLM or HTTP fallback) ────────
 	var agentsClient agents.AgentsClient
 	if cfg.LLMProvider != "" {
@@ -69,6 +91,9 @@ func main() {
 			slog.Error("failed to create direct LLM client, falling back to HTTP", "err", err)
 			agentsClient = agents.NewHTTPAgentsClient(cfg.AgentsURL)
 		} else {
+			if embedder != nil {
+				direct.SetEmbedder(embedder)
+			}
 			slog.Info("using direct LLM provider", "type", cfg.LLMProvider, "model", cfg.LLMModel)
 			agentsClient = direct
 		}

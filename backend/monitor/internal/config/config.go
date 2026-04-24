@@ -31,6 +31,15 @@ type Config struct {
 	LLMBaseURL  string
 	LLMModel    string
 
+	// Embedding (BGE-M3 via OpenAI-compat /v1/embeddings)
+	EmbeddingAPIURL string
+	EmbeddingModel  string
+	EmbeddingAPIKey string
+
+	// Chroma vector store
+	ChromaURL        string
+	ChromaCollection string
+
 	// Feature flags
 	SidecarMode bool
 
@@ -60,6 +69,13 @@ func Load() (*Config, error) {
 		LLMAPIKey:   os.Getenv("LLM_API_KEY"),
 		LLMBaseURL:  os.Getenv("LLM_BASE_URL"),
 		LLMModel:    envOr("LLM_MODEL", ""),
+
+		EmbeddingAPIURL: os.Getenv("EMBEDDING_API_URL"),
+		EmbeddingModel:  envOr("EMBEDDING_MODEL", "bge-m3"),
+		EmbeddingAPIKey: os.Getenv("EMBEDDING_API_KEY"),
+
+		ChromaURL:        envOr("CHROMA_URL", ""),
+		ChromaCollection: envOr("CHROMA_COLLECTION", "news_embeddings"),
 
 		SidecarMode: envBool("SIDECAR_MODE", false),
 

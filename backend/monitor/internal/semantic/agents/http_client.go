@@ -56,6 +56,47 @@ func (c *HTTPAgentsClient) Classify(ctx context.Context, text string) (*AiClassi
 	return &result, nil
 }
 
+func (c *HTTPAgentsClient) Sentiment(ctx context.Context, texts []string) ([]SentimentResult, error) {
+	body := map[string]any{"texts": texts}
+	resp, err := c.post(ctx, "/sentiment", body)
+	if err != nil {
+		return nil, err
+	}
+	var result []SentimentResult
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, fmt.Errorf("agents: unmarshal: %w", err)
+	}
+	return result, nil
+}
+
+func (c *HTTPAgentsClient) ExtractEntities(ctx context.Context, texts []string) ([][]NEREntity, error) {
+	body := map[string]any{"texts": texts}
+	resp, err := c.post(ctx, "/ner", body)
+	if err != nil {
+		return nil, err
+	}
+	var result [][]NEREntity
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, fmt.Errorf("agents: unmarshal: %w", err)
+	}
+	return result, nil
+}
+
+func (c *HTTPAgentsClient) Translate(ctx context.Context, text string, targetLang string) (string, error) {
+	body := map[string]any{"text": text, "targetLang": targetLang}
+	resp, err := c.post(ctx, "/translate", body)
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		Translation string `json:"translation"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return "", fmt.Errorf("agents: unmarshal: %w", err)
+	}
+	return result.Translation, nil
+}
+
 func (c *HTTPAgentsClient) Embed(ctx context.Context, text string) ([]float32, error) {
 	body := map[string]any{"text": text}
 	resp, err := c.post(ctx, "/embed", body)

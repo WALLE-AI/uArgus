@@ -18,6 +18,7 @@ type DirectAgentsClient struct {
 	provider provider.Provider
 	model    string
 	logger   *slog.Logger
+	embedder *EmbeddingClient
 }
 
 // DirectAgentsConfig configures the DirectAgentsClient.
@@ -59,25 +60,23 @@ func NewDirectAgentsClient(cfg DirectAgentsConfig) (*DirectAgentsClient, error) 
 }
 
 // Summarize sends headlines to the LLM and returns a summary.
+// Prompts are mode-aware (brief/analysis/translate/default) and variant-aware (tech/full).
 func (c *DirectAgentsClient) Summarize(ctx context.Context, texts []string, opts SummarizeOpts) (string, error) {
-	combined := strings.Join(texts, "\n- ")
 	maxTokens := opts.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 1024
 	}
-	systemPrompt := "You are a news analyst. Produce a concise summary of the given headlines. Focus on the most important events and their implications."
-	if opts.Mode == "brief" {
-		systemPrompt += " Keep it under 3 sentences."
-	}
+
+	prompts := BuildSummarizePrompts(texts, opts)
 
 	ch, err := c.provider.CallModel(ctx, provider.CallModelParams{
 		Model:        c.model,
-		SystemPrompt: systemPrompt,
+		SystemPrompt: prompts.SystemPrompt,
 		Messages: []llm.Message{
 			{
 				Type: llm.MessageTypeUser,
 				Content: []llm.ContentBlock{
-					{Type: llm.ContentBlockText, Text: "Summarize these headlines:\n- " + combined},
+					{Type: llm.ContentBlockText, Text: prompts.UserPrompt},
 				},
 			},
 		},
@@ -93,10 +92,7 @@ func (c *DirectAgentsClient) Summarize(ctx context.Context, texts []string, opts
 // Classify sends a text to the LLM for AI classification.
 func (c *DirectAgentsClient) Classify(ctx context.Context, text string) (*AiClassification, error) {
 	maxTokens := 512
-	systemPrompt := `You are a news classifier. Given a headline, return a JSON object with:
-- "categories": array of category strings (e.g., "geopolitics", "tech", "finance", "climate", "health", "security")
-- "confidence": a float between 0 and 1
-Only return valid JSON, no explanation.`
+	systemPrompt, userPrompt := BuildClassifyPrompt(text)
 
 	ch, err := c.provider.CallModel(ctx, provider.CallModelParams{
 		Model:        c.model,
@@ -105,7 +101,7 @@ Only return valid JSON, no explanation.`
 			{
 				Type: llm.MessageTypeUser,
 				Content: []llm.ContentBlock{
-					{Type: llm.ContentBlockText, Text: text},
+					{Type: llm.ContentBlockText, Text: userPrompt},
 				},
 			},
 		},
@@ -120,13 +116,7 @@ Only return valid JSON, no explanation.`
 		return nil, err
 	}
 
-	// Parse the JSON response
-	responseText = strings.TrimSpace(responseText)
-	// Strip markdown code fences if present
-	responseText = strings.TrimPrefix(responseText, "```json")
-	responseText = strings.TrimPrefix(responseText, "```")
-	responseText = strings.TrimSuffix(responseText, "```")
-	responseText = strings.TrimSpace(responseText)
+	responseText = stripCodeFences(responseText)
 
 	var result AiClassification
 	if err := json.Unmarshal([]byte(responseText), &result); err != nil {
@@ -136,10 +126,130 @@ Only return valid JSON, no explanation.`
 	return &result, nil
 }
 
-// Embed is a stub — embedding requires a separate model/endpoint, not supported via chat LLM.
-func (c *DirectAgentsClient) Embed(ctx context.Context, text string) ([]float32, error) {
-	return nil, fmt.Errorf("direct agents: embedding not supported via chat LLM provider; use a dedicated embedding endpoint")
+// Sentiment performs batch sentiment analysis via LLM.
+func (c *DirectAgentsClient) Sentiment(ctx context.Context, texts []string) ([]SentimentResult, error) {
+	maxTokens := 1024
+	systemPrompt, userPrompt := BuildSentimentPrompt(texts)
+
+	ch, err := c.provider.CallModel(ctx, provider.CallModelParams{
+		Model:        c.model,
+		SystemPrompt: systemPrompt,
+		Messages: []llm.Message{
+			{
+				Type: llm.MessageTypeUser,
+				Content: []llm.ContentBlock{
+					{Type: llm.ContentBlockText, Text: userPrompt},
+				},
+			},
+		},
+		MaxOutputTokens: &maxTokens,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("direct agents: sentiment: %w", err)
+	}
+
+	responseText, err := collectText(ch)
+	if err != nil {
+		return nil, err
+	}
+
+	responseText = stripCodeFences(responseText)
+
+	var results []SentimentResult
+	if err := json.Unmarshal([]byte(responseText), &results); err != nil {
+		c.logger.Warn("sentiment: failed to parse LLM response", "response", responseText, "err", err)
+		// Return neutral fallback for all inputs
+		fallback := make([]SentimentResult, len(texts))
+		for i := range fallback {
+			fallback[i] = SentimentResult{Label: "neutral", Score: 0.5}
+		}
+		return fallback, nil
+	}
+	return results, nil
 }
+
+// ExtractEntities performs batch NER via LLM.
+func (c *DirectAgentsClient) ExtractEntities(ctx context.Context, texts []string) ([][]NEREntity, error) {
+	maxTokens := 2048
+	systemPrompt, userPrompt := BuildNERPrompt(texts)
+
+	ch, err := c.provider.CallModel(ctx, provider.CallModelParams{
+		Model:        c.model,
+		SystemPrompt: systemPrompt,
+		Messages: []llm.Message{
+			{
+				Type: llm.MessageTypeUser,
+				Content: []llm.ContentBlock{
+					{Type: llm.ContentBlockText, Text: userPrompt},
+				},
+			},
+		},
+		MaxOutputTokens: &maxTokens,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("direct agents: ner: %w", err)
+	}
+
+	responseText, err := collectText(ch)
+	if err != nil {
+		return nil, err
+	}
+
+	responseText = stripCodeFences(responseText)
+
+	var results [][]NEREntity
+	if err := json.Unmarshal([]byte(responseText), &results); err != nil {
+		c.logger.Warn("ner: failed to parse LLM response", "response", responseText, "err", err)
+		return make([][]NEREntity, len(texts)), nil
+	}
+	return results, nil
+}
+
+// Translate translates text to targetLang via LLM.
+func (c *DirectAgentsClient) Translate(ctx context.Context, text string, targetLang string) (string, error) {
+	maxTokens := 1024
+	prompts := BuildSummarizePrompts([]string{text}, SummarizeOpts{
+		Mode:    "translate",
+		Variant: targetLang,
+	})
+
+	ch, err := c.provider.CallModel(ctx, provider.CallModelParams{
+		Model:        c.model,
+		SystemPrompt: prompts.SystemPrompt,
+		Messages: []llm.Message{
+			{
+				Type: llm.MessageTypeUser,
+				Content: []llm.ContentBlock{
+					{Type: llm.ContentBlockText, Text: prompts.UserPrompt},
+				},
+			},
+		},
+		MaxOutputTokens: &maxTokens,
+	})
+	if err != nil {
+		return "", fmt.Errorf("direct agents: translate: %w", err)
+	}
+
+	return collectText(ch)
+}
+
+// Embed generates a vector embedding for the given text.
+// Requires an EmbeddingClient to be set; returns an error if not configured.
+func (c *DirectAgentsClient) Embed(ctx context.Context, text string) ([]float32, error) {
+	if c.embedder == nil {
+		return nil, fmt.Errorf("direct agents: embedding not configured; set an EmbeddingClient")
+	}
+	return c.embedder.Embed(ctx, text)
+}
+
+// SetEmbedder injects an EmbeddingClient for Embed() calls.
+func (c *DirectAgentsClient) SetEmbedder(e *EmbeddingClient) {
+	c.embedder = e
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
 
 // collectText drains a StreamEvent channel and concatenates all text deltas.
 func collectText(ch <-chan llm.StreamEvent) (string, error) {
@@ -167,4 +277,13 @@ func collectText(ch <-chan llm.StreamEvent) (string, error) {
 		return "", fmt.Errorf("llm error: %s", lastError)
 	}
 	return sb.String(), nil
+}
+
+// stripCodeFences removes markdown code fences from LLM JSON responses.
+func stripCodeFences(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "```json")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSuffix(s, "```")
+	return strings.TrimSpace(s)
 }

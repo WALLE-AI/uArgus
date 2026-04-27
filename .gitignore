@@ -16,7 +16,7 @@ downloads/
 eggs/
 .eggs/
 .workspace_uploads
-lib/
+/lib/
 lib64/
 parts/
 sdist/

@@ -1,22 +1,42 @@
 "use client";
 
-import { X, Bookmark, BrainCircuit, Share2, BookOpen, ExternalLink } from "lucide-react";
+import { X, Bookmark, Share2, BookOpen, ExternalLink, Shield, Users, Radio, Layers, BrainCircuit } from "lucide-react";
+import EventAnalysisPanel from "@/components/feed/EventAnalysisPanel";
 import { cn } from "@/lib/utils";
-import type { FeedItem } from "./FeedCard";
+import type { SemanticFeedItem, SeverityLevel } from "@/lib/types";
+import { severityToLevel, severityToLabel, stageToLabel, tierToLabel } from "@/lib/types";
+import { getCategoryLabel } from "@/lib/mock-data";
 
 interface FeedDetailProps {
-  item: FeedItem | null;
+  item: SemanticFeedItem | null;
+  relatedItems?: SemanticFeedItem[];
   onClose: () => void;
+  onSelectRelated?: (item: SemanticFeedItem) => void;
 }
 
-const IMPORTANCE_STYLE: Record<string, string> = {
-  紧急: "bg-red-100 text-red-700",
-  高: "bg-orange-100 text-orange-700",
-  中: "bg-yellow-100 text-yellow-700",
-  低: "bg-muted text-muted-foreground",
+const SEVERITY_STYLE: Record<SeverityLevel, string> = {
+  critical: "bg-red-100 text-red-700",
+  high: "bg-orange-100 text-orange-700",
+  medium: "bg-yellow-100 text-yellow-700",
+  low: "bg-muted text-muted-foreground",
+  info: "bg-blue-50 text-blue-600",
 };
 
-export default function FeedDetail({ item, onClose }: FeedDetailProps) {
+const STAGE_STYLE: Record<string, string> = {
+  BREAKING: "bg-red-500 text-white",
+  DEVELOPING: "bg-orange-500 text-white",
+  SUSTAINED: "bg-blue-500 text-white",
+  FADING: "bg-gray-400 text-white",
+};
+
+const TIER_STYLE: Record<number, string> = {
+  1: "text-emerald-600",
+  2: "text-blue-600",
+  3: "text-amber-600",
+  4: "text-gray-500",
+};
+
+export default function FeedDetail({ item, relatedItems = [], onClose, onSelectRelated }: FeedDetailProps) {
   return (
     <div
       className={cn(
@@ -29,15 +49,20 @@ export default function FeedDetail({ item, onClose }: FeedDetailProps) {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <div className="flex items-center gap-2">
-              <span className={cn("rounded px-2 py-0.5 text-[11px] font-medium", IMPORTANCE_STYLE[item.importance])}>
-                {item.importance}
+              <span className={cn("rounded px-2 py-0.5 text-[11px] font-medium", SEVERITY_STYLE[severityToLevel(item.severity)])}>
+                {severityToLabel(item.severity)}
               </span>
-              <span className="text-xs text-muted-foreground">{item.source} · {item.time}</span>
+              {item.stage && (
+                <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", STAGE_STYLE[item.stage])}>
+                  {stageToLabel(item.stage)}
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">{item.source}</span>
             </div>
             <div className="flex items-center gap-1">
-              <button className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+              <a href={item.link} target="_blank" rel="noopener noreferrer" className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
                 <ExternalLink className="h-4 w-4" />
-              </button>
+              </a>
               <button onClick={onClose} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
                 <X className="h-4 w-4" />
               </button>
@@ -48,48 +73,112 @@ export default function FeedDetail({ item, onClose }: FeedDetailProps) {
           <div className="flex-1 overflow-y-auto px-6 py-6">
             <h1 className="text-xl font-bold leading-tight">{item.title}</h1>
             <div className="mt-3 flex gap-1.5">
-              {item.tags.map((tag) => (
-                <span key={tag} className="rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{tag}</span>
+              {item.categories.map((cat) => (
+                <span key={cat} className="rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{getCategoryLabel(cat)}</span>
               ))}
             </div>
 
-            {/* AI Summary */}
-            <div className="mt-6 rounded-lg border border-accent-blue/20 bg-accent-blue/5 p-4">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-accent-blue mb-2">
-                <BrainCircuit className="h-3.5 w-3.5" />
-                AI 摘要
-              </div>
-              <p className="text-sm leading-relaxed text-foreground">{item.summary}</p>
-            </div>
-
-            {/* Article body placeholder */}
-            <div className="mt-6 space-y-4 text-sm leading-relaxed text-foreground/80">
-              <p>
-                这是文章的详细内容区域。在实际版本中，这里会显示完整的文章正文，支持富文本渲染、
-                图片展示和链接跳转。AI 分析模块会提供实体识别、关键事件提取和情感分析结果。
-              </p>
-              <p>
-                文章来源将通过 RSS 抓取或 API 同步获取原始内容，经过清洗和结构化处理后展示。
-                用户可以对文章进行标注、收藏、添加到知识库等操作。
-              </p>
-              <p>
-                相关文章推荐基于语义相似度和主题关联性，帮助用户快速获取同一事件的多源信息，
-                实现交叉验证和全面理解。
-              </p>
-            </div>
-
-            {/* Related articles */}
-            <div className="mt-8">
-              <h3 className="text-sm font-semibold mb-3">相关文章</h3>
-              <div className="space-y-2">
-                {["相关分析报告：政策影响评估", "多源比较：各媒体报道角度差异", "历史回顾：类似事件发展路径"].map((t) => (
-                  <div key={t} className="flex items-center gap-2 rounded-lg p-2 hover:bg-muted/50 cursor-pointer transition-colors">
-                    <div className="h-1.5 w-1.5 rounded-full bg-accent-blue shrink-0" />
-                    <span className="text-xs">{t}</span>
+            {/* Semantic Analysis Panel */}
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-border p-3">
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1.5">
+                  <Radio className="h-3 w-3" />
+                  重要度评分
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-lg font-bold text-accent-blue">{Math.round(item.importanceScore * 100)}</div>
+                  <div className="flex-1">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-accent-blue" style={{ width: `${item.importanceScore * 100}%` }} />
+                    </div>
                   </div>
-                ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1.5">
+                  <Users className="h-3 w-3" />
+                  跨源佐证
+                </div>
+                <div className="text-lg font-bold">
+                  {item.corroboration} <span className="text-xs font-normal text-muted-foreground">个独立来源</span>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1.5">
+                  <Shield className="h-3 w-3" />
+                  来源可信度
+                </div>
+                <div className={cn("text-sm font-semibold", TIER_STYLE[item.tier])}>
+                  Tier {item.tier} — {tierToLabel(item.tier)}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1.5">
+                  <Layers className="h-3 w-3" />
+                  严重度分级
+                </div>
+                <div className="text-sm font-semibold">
+                  Level {item.severity}/7 — {severityToLabel(item.severity)}
+                </div>
               </div>
             </div>
+
+            {/* AI Summary */}
+            {item.description && (
+              <div className="mt-5 rounded-lg border border-accent-blue/20 bg-accent-blue/5 p-4">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-accent-blue mb-2">
+                  <BrainCircuit className="h-3.5 w-3.5" />
+                  AI 摘要
+                </div>
+                <p className="text-sm leading-relaxed text-foreground">{item.description}</p>
+              </div>
+            )}
+
+            {/* Event Stage Lifecycle */}
+            {item.stage && (
+              <div className="mt-5">
+                <h3 className="text-xs font-semibold text-muted-foreground mb-2">事件生命周期</h3>
+                <div className="flex gap-1">
+                  {(["BREAKING", "DEVELOPING", "SUSTAINED", "FADING"] as const).map((s) => (
+                    <div
+                      key={s}
+                      className={cn(
+                        "flex-1 rounded py-1 text-center text-[10px] font-medium transition-all",
+                        item.stage === s ? STAGE_STYLE[s] : "bg-muted/50 text-muted-foreground"
+                      )}
+                    >
+                      {stageToLabel(s)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Event Analysis Panel */}
+            <EventAnalysisPanel hash={item.hash} />
+
+            {/* Related articles (semantic) */}
+            {relatedItems.length > 0 && (
+              <div className="mt-8">
+                <h3 className="text-sm font-semibold mb-3">相关文章（语义关联）</h3>
+                <div className="space-y-2">
+                  {relatedItems.map((r) => (
+                    <div
+                      key={r.hash}
+                      onClick={() => onSelectRelated?.(r)}
+                      className="flex items-center gap-2 rounded-lg p-2 hover:bg-muted/50 cursor-pointer transition-colors"
+                    >
+                      <div className="h-1.5 w-1.5 rounded-full bg-accent-blue shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs truncate block">{r.title}</span>
+                        <span className="text-[10px] text-muted-foreground">{r.source}</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">{Math.round(r.importanceScore * 100)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Actions bar */}

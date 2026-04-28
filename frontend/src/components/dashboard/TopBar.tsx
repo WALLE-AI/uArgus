@@ -13,7 +13,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   "/dashboard/monitor/categories": "监控 / 领域分类",
   "/dashboard/monitor/health": "监控 / 源健康状态",
   "/dashboard/monitor/tasks": "监控 / 采集任务",
-  "/dashboard/monitor/feed": "监控 / 信息流",
+  "/dashboard/content/feed": "内容 / AI 内容流",
   "/dashboard/monitor/analysis": "监控 / 智能分析",
   "/dashboard/monitor/sentiment": "监控 / 舆情监控",
   "/dashboard/monitor/prediction": "监控 / 预测分析",

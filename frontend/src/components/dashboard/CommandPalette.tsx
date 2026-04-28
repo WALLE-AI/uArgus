@@ -15,7 +15,7 @@ interface CommandItem {
 
 const COMMANDS: CommandItem[] = [
   { id: "dashboard", label: "Dashboard 总览", group: "导航", icon: BarChart3, href: "/dashboard" },
-  { id: "feed", label: "信息流", group: "导航", icon: Rss, href: "/dashboard/monitor/feed" },
+  { id: "feed", label: "AI 内容流", group: "导航", icon: Rss, href: "/dashboard/content/feed" },
   { id: "sources", label: "数据源管理", group: "导航", icon: Rss, href: "/dashboard/monitor/sources" },
   { id: "analysis", label: "智能分析", group: "导航", icon: BarChart3, href: "/dashboard/monitor/analysis" },
   { id: "sentiment", label: "舆情监控", group: "导航", icon: BarChart3, href: "/dashboard/monitor/sentiment" },

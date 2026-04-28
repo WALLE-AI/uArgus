@@ -63,7 +63,6 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "领域分类", href: "/dashboard/monitor/categories", icon: FolderTree },
       { label: "源健康状态", href: "/dashboard/monitor/health", icon: HeartPulse },
       { label: "采集任务", href: "/dashboard/monitor/tasks", icon: Clock },
-      { label: "信息流", href: "/dashboard/monitor/feed", icon: Rss },
       { label: "智能分析", href: "/dashboard/monitor/analysis", icon: BrainCircuit },
       { label: "舆情监控", href: "/dashboard/monitor/sentiment", icon: TrendingUp },
       { label: "预测分析", href: "/dashboard/monitor/prediction", icon: BarChart3 },
@@ -74,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "内容",
     icon: FileText,
     items: [
+      { label: "AI 内容流", href: "/dashboard/content/feed", icon: Rss },
       { label: "内容中心", href: "/dashboard/content/studio", icon: PenTool },
       { label: "知识沉淀", href: "/dashboard/content/knowledge", icon: BookOpen },
       { label: "内容分发", href: "/dashboard/content/distribution", icon: Share2 },

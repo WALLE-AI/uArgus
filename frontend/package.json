@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.24",
     "clsx": "^2.1.1",
     "cobe": "^2.0.1",
     "framer-motion": "^12.38.0",
@@ -16,7 +18,10 @@
     "next": "16.2.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "tailwind-merge": "^3.5.0"
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^3.5.0",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

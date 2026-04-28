@@ -27,6 +27,14 @@ body {
   color: var(--color-foreground);
 }
 
+.dark {
+  --color-background: #09090b;
+  --color-foreground: #fafafa;
+  --color-muted: #27272a;
+  --color-muted-foreground: #a1a1aa;
+  --color-border: #3f3f46;
+}
+
 @layer utilities {
   .text-gradient {
     background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-green));
